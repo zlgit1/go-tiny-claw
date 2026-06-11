@@ -1,0 +1,14 @@
+# Build output
+bin/
+
+# Compiled binaries
+helloworld
+
+# Temp files
+*.txt
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
