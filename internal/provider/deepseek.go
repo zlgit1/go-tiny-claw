@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"time"
@@ -48,10 +49,15 @@ type dsChatRequest struct {
 }
 
 type dsMessage struct {
-	Role       string      `json:"role"`
-	Content    string      `json:"content,omitempty"`
-	ToolCallID string      `json:"tool_call_id,omitempty"`
+	Role       string       `json:"role"`
+	Content    *string      `json:"content"`             // 指针：nil → JSON null；非 nil → 字符串
+	ToolCallID string       `json:"tool_call_id,omitempty"`
 	ToolCalls  []dsToolCall `json:"tool_calls,omitempty"`
+}
+
+// strPtr 辅助函数，返回字符串指针
+func strPtr(s string) *string {
+	return &s
 }
 
 type dsTool struct {
@@ -66,9 +72,9 @@ type dsToolFunction struct {
 }
 
 type dsToolCall struct {
-	ID       string           `json:"id"`
-	Type     string           `json:"type"`
-	Function dsToolCallFunc   `json:"function"`
+	ID       string         `json:"id"`
+	Type     string         `json:"type"`
+	Function dsToolCallFunc `json:"function"`
 }
 
 type dsToolCallFunc struct {
@@ -80,8 +86,17 @@ type dsToolCallFunc struct {
 func (p *DeepSeekProvider) Generate(ctx context.Context, msgs []schema.Message, availableTools []schema.ToolDefinition) (*schema.Message, error) {
 	// 1. 翻译上下文消息
 	var dsMsgs []dsMessage
-	for _, msg := range msgs {
-		dsMsgs = append(dsMsgs, p.translateMessage(msg))
+	for i, msg := range msgs {
+		dsm := p.translateMessage(msg)
+		// DEBUG: 逐条消息 role/content 状态
+		state := "有内容"
+		if dsm.Content == nil {
+			state = "nil"
+		} else if *dsm.Content == "" {
+			state = "空字符串"
+		}
+		log.Printf("[DeepSeek DEBUG] msg[%d] role=%-10s content=%-8s tool_calls=%d", i, dsm.Role, state, len(dsm.ToolCalls))
+		dsMsgs = append(dsMsgs, dsm)
 	}
 
 	// 2. 翻译工具定义
@@ -112,6 +127,13 @@ func (p *DeepSeekProvider) Generate(ctx context.Context, msgs []schema.Message, 
 	if err != nil {
 		return nil, fmt.Errorf("DeepSeek 请求序列化失败: %w", err)
 	}
+
+	// DEBUG: 打印请求体，定位 messages[1] 缺少 content 字段的问题
+	bodyStr := string(bodyBytes)
+	if len(bodyStr) > 3000 {
+		bodyStr = bodyStr[:3000] + "...(截断)"
+	}
+	log.Printf("[DeepSeek DEBUG] 请求体: %s", bodyStr)
 
 	url := deepseekBaseURL + "/chat/completions"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
@@ -177,17 +199,26 @@ func (p *DeepSeekProvider) Generate(ctx context.Context, msgs []schema.Message, 
 func (p *DeepSeekProvider) translateMessage(msg schema.Message) dsMessage {
 	switch msg.Role {
 	case schema.RoleSystem:
-		return dsMessage{Role: "system", Content: msg.Content}
+		return dsMessage{Role: "system", Content: strPtr(msg.Content)}
 
 	case schema.RoleUser:
 		if msg.ToolCallID != "" {
 			// 工具执行结果
-			return dsMessage{Role: "tool", Content: msg.Content, ToolCallID: msg.ToolCallID}
+			return dsMessage{Role: "tool", Content: strPtr(msg.Content), ToolCallID: msg.ToolCallID}
 		}
-		return dsMessage{Role: "user", Content: msg.Content}
+		return dsMessage{Role: "user", Content: strPtr(msg.Content)}
 
 	case schema.RoleAssistant:
-		dsm := dsMessage{Role: "assistant", Content: msg.Content}
+		// assistant 消息 content 必须为非空字符串；tool_calls 存在时可为空但字段必须存在
+		var content *string
+		if msg.Content != "" {
+			content = strPtr(msg.Content)
+		} else {
+			// 防御：content 为空时用空字符串指针而非 nil，确保序列化为 "content":"" 而非 "content":null
+			// DeepSeek API 对 null 值的兼容性不如空字符串
+			content = strPtr("")
+		}
+		dsm := dsMessage{Role: "assistant", Content: content}
 		for _, tc := range msg.ToolCalls {
 			dsm.ToolCalls = append(dsm.ToolCalls, dsToolCall{
 				ID:   tc.ID,
@@ -201,6 +232,6 @@ func (p *DeepSeekProvider) translateMessage(msg schema.Message) dsMessage {
 		return dsm
 
 	default:
-		return dsMessage{Role: "user", Content: msg.Content}
+		return dsMessage{Role: "user", Content: strPtr(msg.Content)}
 	}
 }
