@@ -187,6 +187,14 @@ func (p *DeepSeekProvider) Generate(ctx context.Context, msgs []schema.Message, 
 		})
 	}
 
+	// 提取 Usage 信息（输入/输出 Token 数）
+	if chatResp.Usage != nil && (chatResp.Usage.PromptTokens > 0 || chatResp.Usage.CompletionTokens > 0) {
+		resultMsg.Usage = &schema.Usage{
+			PromptTokens:     chatResp.Usage.PromptTokens,
+			CompletionTokens: chatResp.Usage.CompletionTokens,
+		}
+	}
+
 	return resultMsg, nil
 }
 
