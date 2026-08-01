@@ -12,3 +12,16 @@ helloworld
 .vscode/
 *.swp
 *.swo
+
+# Backup files
+*.bak
+
+# Logs
+*.log
+
+# Agent runtime artifacts
+workspace/.claw/traces/
+workspace/test_*/
+
+# WIP: unfinished entry, ignored by go tooling (underscore-prefixed dir)
+cmd/_agentops/

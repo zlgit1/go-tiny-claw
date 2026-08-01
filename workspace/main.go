@@ -1,17 +1,27 @@
-// main.go - 程序入口
 package main
 
 import (
 	"fmt"
-	"log"
-	"net/http"
-
-	"go-tiny-claw/handler"
+	"sync"
 )
 
 func main() {
-	http.HandleFunc("/ping", handler.Ping)
+	// 全局计数器
+	var count int
+	var mu sync.Mutex
+	var wg sync.WaitGroup
 
-	fmt.Println("服务已启动，监听端口 :8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	// 启动 1000 个 Goroutine 去并发累加
+	for i := 0; i < 1000; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			mu.Lock()
+			count++
+			mu.Unlock()
+		}()
+	}
+
+	wg.Wait()
+	fmt.Printf("最终的 Count 是: %d\n", count)
 }
