@@ -3,6 +3,7 @@ bin/
 
 # Compiled binaries
 helloworld
+/claw
 
 # Temp files
 *.txt
